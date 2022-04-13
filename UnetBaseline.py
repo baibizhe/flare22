@@ -117,7 +117,7 @@ class UNet(nn.Module):
 
 if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    x = torch.Tensor(10, 1, 256 , 256, 256)
+    x = torch.Tensor(2, 1, 128 , 128, 128)
     x.to(device)
     print("x size: {}".format(x.size()))
 
