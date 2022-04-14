@@ -5,6 +5,7 @@ import pytorch_toolbelt.losses
 import torch
 from timm.utils import AverageMeter
 from torch.optim import AdamW
+from skimage.transform import  resize
 
 from utils import CustomImageDataset, resizeFun,compute_dice_coefficient
 from UnetBaseline import  UNet
@@ -57,17 +58,19 @@ def val_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn
     output = None
     
     for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.to(device).long()
+        data = resizeFun(data,(1,1,128,128,128))
+        targetResized=resizeFun(target,(1,128,128,128))
+        data,targetResized = torch.tensor(data).to(device), torch.tensor(targetResized).to(device).long()
         #         optimizer.zero_grad()
         with torch.no_grad():
             output = model(data)
-            loss = loss_fn(output, target)
+            loss = loss_fn(output, targetResized)
             losses.update(loss.item(), data.size(0))
             output = torch.argmax(output,1)
-            
-            dice_coefficients.update(compute_dice_coefficient(output.cpu().numpy(),target.cpu().numpy()),1)            
+            output = resizeFun(output.cpu().numpy(),target.shape)
+            dice_coefficients.update(compute_dice_coefficient(output.astype(int),target.numpy()),1)
 
-        if batch_idx % 10 == 0:
+        if batch_idx % 5 == 0:
             log = ('VAL Epoch:[{}/{}({:.0f}%)]\t'
                    'It:[{}/{}({:2.0f}%)]\t'
                    'Loss: {:.4f}({:.4f}) Dice: {:.4f}'.format(
@@ -75,11 +78,11 @@ def val_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn
                 batch_idx, len(train_loader), 1. * batch_idx / len(train_loader) * 100,
                 loss.item(), losses.avg,dice_coefficients.avg))
             print(log)
-            if epoch%1==0:
+            if epoch%5==0:
                 print("保存图像")
-                target  = target.cpu().numpy()[0,:]
-                output = output.cpu().numpy()[0,:]
-                print(target.shape,output.shape)
+                target  = targetResized.cpu().numpy()[0,:]
+                output = output[0,:]
+                # print(target.shape,output.shape)
                 
                 fig, ax1 = plt.subplots(1, 1, figsize = (40, 40),dpi=200)
                 ax1.imshow(montage(output[10:len(output)-5]), cmap ='bone')
@@ -114,7 +117,9 @@ def main():
         except:
             pass
     device = torch.device("cuda:%d" % 0)
-    dataDirPath = "data/FLARE22_LabeledCase50"
+    dataDirPath = "data/FLARE22_LabeledCase50-20220324T003930Z-001"
+    # dataDirPath = "data/FLARE22_LabeledCase50"
+
     imgPaths = list(
         map(lambda x: os.path.join(dataDirPath, "images", x), os.listdir(os.path.join(dataDirPath, "images"))))
     labelPath = list(
@@ -126,8 +131,10 @@ def main():
                                       labelPath=labelPath[0:splitIndex],
                                       labelTransform=resizeFun,
                                       imgTransform=resizeFun)
-    valDataset = CustomImageDataset(CTImagePath=imgPaths[0:splitIndex],
-                                      labelPath=labelPath[0:splitIndex],
+    valDataset = CustomImageDataset(CTImagePath=imgPaths[splitIndex:],
+                                      labelPath=labelPath[splitIndex:],
+                                    # imgTransform=resizeFun,
+                                    # labelTransform=resizeFun,
                                       )
 
     print("total images:", len(trainDataset))
