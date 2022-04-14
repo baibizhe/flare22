@@ -69,11 +69,11 @@ def val_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn
                 output = output[0,:]
                 # print(target.shape,output.shape)
                 
-                fig, ax1 = plt.subplots(1, 1, figsize = (40, 40),dpi=200)
-                ax1.imshow(montage(output[10:len(output)-5]), cmap ='bone')
+                fig, ax1 = plt.subplots(1, 1, figsize = (40, 40),dpi=100)
+                ax1.imshow(montage(output[20:len(output)-15]), cmap ='bone')
                 fig.savefig('outPutImages/output_epoch{}.png'.format(epoch))
-                fig, ax1 = plt.subplots(1, 1, figsize = (40, 40),dpi=200)
-                ax1.imshow(montage(target[10:len(target)-5]), cmap ='bone')
+                fig, ax1 = plt.subplots(1, 1, figsize = (40, 40),dpi=100)
+                ax1.imshow(montage(target[20:len(target)-15]), cmap ='bone')
                 fig.savefig('outPutImages/target_epoch{}.png'.format(epoch))
                 plt.close('all')
     return losses.avg,dice_coefficients.avg
@@ -158,11 +158,18 @@ def main():
             trainDiceCoefficients.update(trainDiceEpoch)
             validLosses.update(validLossEpoch)
             validDiceCoefficients.update(validDiceEpoch)
-            t.set_postfix(All_train_Losses=trainLosses.avg,
-                          All_train_Dice=trainDiceCoefficients.avg,
-                          All_valid_Losses=validLosses.avg,
-                          All_valid_Dice=validDiceCoefficients.avg
-                          )
+            # t.set_postfix(All_train_Losses=trainLosses.avg,
+            #               All_train_Dice=trainDiceCoefficients.avg,
+            #               All_valid_Losses=validLosses.avg,
+            #               All_valid_Dice=validDiceCoefficients.avg
+            #               )
+            t.set_postfix({"Train loss avg":trainLosses.avg,
+                           "Train Dice resized":trainDiceCoefficients.avg,
+                           "Valid loss avg":validLosses.avg,
+                           "Valid dice full size":validDiceCoefficients.avg
+
+
+            })
 
             if validDiceEpoch > valid_dice:
                 torch.save(model.state_dict(), "best_baseline.pth")
