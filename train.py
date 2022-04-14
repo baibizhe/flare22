@@ -13,7 +13,7 @@ from torch.cuda.amp import autocast, GradScaler
 import  numpy as np
 from skimage.util import montage
 import matplotlib.pyplot as plt
-
+from tqdm import  trange
 def train_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn):
     model.train()
     losses = AverageMeter()
@@ -35,21 +35,13 @@ def train_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_
         scaler.step(optimizer)
         scaler.update()
         optimizer.step()
+    return  losses.avg,dice_coefficients.avg
 
-        if batch_idx % 10 == 0:
-            log = ('Train Epoch:[{}/{}({:.0f}%)]\t'
-                   'It:[{}/{}({:2.0f}%)]\t'
-                   'Loss: {:.4f}({:.4f})  Dice: {:.4f}'.format(
-                epoch, trainepochs, 1. * epoch / trainepochs * 100,
-                batch_idx, len(train_loader), 1. * batch_idx / len(train_loader) * 100,
-                loss.item(), losses.avg,dice_coefficients.avg))
-            # compute_dice_coefficient(output.detach().cpu().numpy(),target.cpu().numpy())
-            print(log)
             
-        if epoch %20 == 0:
-            np.save(file="100output.npy",arr=model(data).detach().cpu().numpy())
-            np.save(file="100data.npy",arr=data.cpu().numpy())
-            np.save(file="100target.npy",arr=target.cpu().numpy())
+        # if epoch %20 == 0:
+        #     np.save(file="100output.npy",arr=model(data).detach().cpu().numpy())
+        #     np.save(file="100data.npy",arr=data.cpu().numpy())
+        #     np.save(file="100target.npy",arr=target.cpu().numpy())
 
 def val_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn):
     model.eval()
@@ -58,26 +50,19 @@ def val_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn
     output = None
     
     for batch_idx, (data, target) in enumerate(train_loader):
-        data = resizeFun(data,(1,1,128,128,128))
-        targetResized=resizeFun(target,(1,128,128,128))
-        data,targetResized = torch.tensor(data).to(device), torch.tensor(targetResized).to(device).long()
+        batchSize = data.shape[0]
+        targetResized=resizeFun(target,(batchSize,128,128,128))
+        data,targetResized = data.to(device), torch.tensor(targetResized).to(device).long()
         #         optimizer.zero_grad()
         with torch.no_grad():
             output = model(data)
             loss = loss_fn(output, targetResized)
             losses.update(loss.item(), data.size(0))
             output = torch.argmax(output,1)
-            output = resizeFun(output.cpu().numpy(),target.shape)
+            output = resizeFun(output.cpu().numpy(),(batchSize,target.shape[1],target.shape[2],target.shape[3]))
             dice_coefficients.update(compute_dice_coefficient(output.astype(int),target.numpy()),1)
 
         if batch_idx % 5 == 0:
-            log = ('VAL Epoch:[{}/{}({:.0f}%)]\t'
-                   'It:[{}/{}({:2.0f}%)]\t'
-                   'Loss: {:.4f}({:.4f}) Dice: {:.4f}'.format(
-                epoch, trainepochs, 1. * epoch / trainepochs * 100,
-                batch_idx, len(train_loader), 1. * batch_idx / len(train_loader) * 100,
-                loss.item(), losses.avg,dice_coefficients.avg))
-            print(log)
             if epoch%5==0:
                 print("保存图像")
                 target  = targetResized.cpu().numpy()[0,:]
@@ -96,7 +81,7 @@ def main():
     parser = argparse.ArgumentParser()
     arg = parser.add_argument
     arg("--batch-size", type=int, default=2)
-    arg("--n-epochs", type=int, default=100)
+    arg("--epochs", type=int, default=500)
     arg("--lr", type=float, default=0.0001)
     arg("--workers", type=int, default=2)
     arg("--model", type=str, default="UNet16")
@@ -133,7 +118,7 @@ def main():
                                       imgTransform=resizeFun)
     valDataset = CustomImageDataset(CTImagePath=imgPaths[splitIndex:],
                                       labelPath=labelPath[splitIndex:],
-                                    # imgTransform=resizeFun,
+                                    imgTransform=resizeFun,
                                     # labelTransform=resizeFun,
                                       )
 
@@ -148,22 +133,41 @@ def main():
     optimizer = AdamW(model.parameters(), lr=3e-4, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=150, gamma=0.25, last_epoch=-1)
 
-    epochs = 500
+    epochs = args.epochs
     valid_mse = 0
     valid_dice = 0 
     lossFun = torch.nn.CrossEntropyLoss()
-    for epoch in range(1, epochs + 1):
-        train_epoch(model=model,
-                    train_loader=train_loader,
-                    optimizer=optimizer,
-                    device=device,
-                    epoch=epoch,
-                    loss_fn=lossFun,
-                    trainepochs=epochs)
-        cur_loss,cur_dice = val_epoch(model, val_loader, optimizer, device, epoch, epochs,lossFun)
-        if cur_dice > valid_dice:
-            torch.save(model.state_dict(), "best_baseline.pth")
-        scheduler.step()
+    trainLosses = AverageMeter()
+    trainDiceCoefficients = AverageMeter()
+    validLosses = AverageMeter()
+    validDiceCoefficients = AverageMeter()
+    with trange(epochs) as t:
+        # for i in t:
+        for epoch in t:
+            t.set_description('Epoch %i' % epoch)
+
+            trainLossEpoch,trainDiceEpoch = train_epoch(model=model,
+                        train_loader=train_loader,
+                        optimizer=optimizer,
+                        device=device,
+                        epoch=epoch,
+                        loss_fn=lossFun,
+                        trainepochs=epochs)
+            validLossEpoch,validDiceEpoch = val_epoch(model, val_loader, optimizer, device, epoch, epochs,lossFun)
+            trainLosses.update(trainLossEpoch)
+            trainDiceCoefficients.update(trainDiceEpoch)
+            validLosses.update(validLossEpoch)
+            validDiceCoefficients.update(validDiceEpoch)
+            t.set_postfix(All_train_Losses=trainLosses.avg,
+                          All_train_Dice=trainDiceCoefficients.avg,
+                          All_valid_Losses=validLosses.avg,
+                          All_valid_Dice=validDiceCoefficients.avg
+                          )
+
+            if validDiceEpoch > valid_dice:
+                torch.save(model.state_dict(), "best_baseline.pth")
+                valid_dice=validDiceEpoch
+            scheduler.step()
 
 
 if __name__ == "__main__":
