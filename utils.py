@@ -9,6 +9,33 @@ from skimage.transform import  resize
 from neighboorCode import neighbour_code_to_normals
 import scipy.ndimage 
 class CustomImageDataset(Dataset):
+    def __init__(self, CTImagePath, labelPath, imgTransform=None,labelTransform=None,TransformWillChangeValue=None):
+        self.CTImagePath = CTImagePath
+        self.labelPath = labelPath
+        self.imgTransform = imgTransform
+        self.labelTransform = labelTransform
+        self.TransformWillChangeValue = TransformWillChangeValue
+
+    def __len__(self):
+        return len(self.CTImagePath)
+
+    def __getitem__(self, idx):
+        image = read_image(self.CTImagePath[idx]).astype(np.float32)
+        label = read_label(self.labelPath[idx]).astype(np.int16)
+        # image =image/np.max(np.abs(image))
+        if self.imgTransform:
+            image = self.imgTransform(np.expand_dims(image,0))
+            if self.TransformWillChangeValue:
+                image = self.TransformWillChangeValue(image)
+
+        if self.labelTransform:
+            label = self.labelTransform(np.expand_dims(label,0))
+
+
+        image = torch.tensor(image)
+        label = torch.tensor(label).squeeze(0)
+        return image, label
+class CustomValidImageDataset(Dataset):
     def __init__(self, CTImagePath, labelPath, imgTransform=None,labelTransform=None):
         self.CTImagePath = CTImagePath
         self.labelPath = labelPath
@@ -21,16 +48,16 @@ class CustomImageDataset(Dataset):
     def __getitem__(self, idx):
         image = read_image(self.CTImagePath[idx]).astype(np.float32)
         label = read_label(self.labelPath[idx]).astype(np.int16)
-        image =image/np.max(np.abs(image))
-
+        # image =image/np.max(np.abs(image))
         if self.imgTransform:
-            image = self.imgTransform(image)
+            image = self.imgTransform(np.expand_dims(image,0))
         if self.labelTransform:
-            label = self.labelTransform(label)
-        image = torch.tensor(image).unsqueeze(0)
-        label = torch.tensor(label)
-        return image, label
+            label = self.labelTransform(np.expand_dims(label,0))
 
+
+        image = torch.tensor(image)
+        label = torch.tensor(label).squeeze(0)
+        return image, label
 def read_image(CTImagePath):
     img = sikt.ReadImage(CTImagePath)
     img = sikt.GetArrayFromImage(img)
@@ -261,27 +288,27 @@ def compute_dice_coefficient(mask_gt, mask_pred):
     volume_intersect = (mask_gt & mask_pred).sum()
     return 2*volume_intersect / volume_sum
 if __name__ == '__main__':
-    mask_gt   = np.ones((5,1,128,128,128), np.uint8)
-    mask_pred = np.ones((5,1,128,128,128), np.uint8)
-    mask_gt[0,0,50,60,70] = 2
-    # mask_pred[50,60,72] = 1
-    # surface_distances = compute_surface_distances(mask_gt, mask_pred, spacing_mm=(3,2,1))
-    # print("surface dice at 1mm:      {}".format(compute_surface_dice_at_tolerance(surface_distances, 1)))
-    print("volumetric dice:          {}".format(compute_dice_coefficient(mask_gt, mask_pred)))
+    # mask_gt   = np.ones((5,1,128,128,128), np.uint8)
+    # mask_pred = np.ones((5,1,128,128,128), np.uint8)
+    # mask_gt[0,0,50,60,70] = 2
+    # # mask_pred[50,60,72] = 1
+    # # surface_distances = compute_surface_distances(mask_gt, mask_pred, spacing_mm=(3,2,1))
+    # # print("surface dice at 1mm:      {}".format(compute_surface_dice_at_tolerance(surface_distances, 1)))
+    # print("volumetric dice:          {}".format(compute_dice_coefficient(mask_gt, mask_pred)))
     
-        # dataDirPath ="data/FLARE22_LabeledCase50-20220324T003930Z-001"
-    # imgPaths = list(map(lambda x: os.path.join(dataDirPath,"images",x),os.listdir(os.path.join(dataDirPath,"images"))))
-    # labelPath = list(map(lambda x: os.path.join(dataDirPath,"labels",x),os.listdir(os.path.join(dataDirPath,"labels"))))
-    # print(imgPaths)
-    # print(labelPath)
-    # splitIndex = int(len(imgPaths)*0.8)
-    # trainDataset = CustomImageDataset(CTImagePath=imgPaths[0:splitIndex],
-    #                                   labelPath=labelPath[0:splitIndex],
-    #                                   labelTransform=resizeFun,
-    #                                   imgTransform=resizeFun)
-    # for img,label in trainDataset:
-    #     print(img.size(),label.size())
-    #     break
-    # print("total images:",len(trainDataset))
+    dataDirPath ="data/FLARE22_LabeledCase50-20220324T003930Z-001"
+    imgPaths = list(map(lambda x: os.path.join(dataDirPath,"images",x),os.listdir(os.path.join(dataDirPath,"images"))))
+    labelPath = list(map(lambda x: os.path.join(dataDirPath,"labels",x),os.listdir(os.path.join(dataDirPath,"labels"))))
+    print(imgPaths)
+    print(labelPath)
+    splitIndex = int(len(imgPaths)*0.8)
+    trainDataset = CustomImageDataset(CTImagePath=imgPaths[0:splitIndex],
+                                      labelPath=labelPath[0:splitIndex],
+                                      labelTransform=resizeFun,
+                                      imgTransform=resizeFun)
+    for img,label in trainDataset:
+        print(img.size(),label.size())
+        break
+    print("total images:",len(trainDataset))
 
 

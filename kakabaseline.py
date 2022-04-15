@@ -96,9 +96,9 @@ class Up(nn.Module):
         return self.conv(torch.cat([inputs1, inputs2], 1))
 
 
-class UNET(nn.Module):
+class ResUNET(nn.Module):
     def __init__(self, norm='bn', feature_scale=2,outputChannel=12):
-        super(UNET, self).__init__()
+        super(ResUNET, self).__init__()
         filters = [64, 128, 256, 512, 1024]
         filters = [int(x // feature_scale) for x in filters]
         self.conv1 = BasicBlock3D(1, filters[0], norm)
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     x.to(device)
     print("x size: {}".format(x.size()))
 
-    model = UNET(outputChannel=outputChannel)
+    model = ResUNET(outputChannel=outputChannel)
 
     out = model(x)
     print("out size: {}".format(out.size()))

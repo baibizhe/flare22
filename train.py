@@ -6,14 +6,16 @@ import torch
 from timm.utils import AverageMeter
 from torch.optim import AdamW
 from skimage.transform import  resize
+import torchio as tio
 
-from utils import CustomImageDataset, resizeFun,compute_dice_coefficient
+from utils import CustomImageDataset, resizeFun, compute_dice_coefficient, CustomValidImageDataset
 from UnetBaseline import  UNet
 from torch.cuda.amp import autocast, GradScaler
 import  numpy as np
 from skimage.util import montage
 import matplotlib.pyplot as plt
 from tqdm import  trange
+from kakabaseline import  ResUNET
 def train_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn):
     model.train()
     losses = AverageMeter()
@@ -48,27 +50,35 @@ def val_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn
     losses = AverageMeter()
     dice_coefficients = AverageMeter()
     output = None
-    
+    target_shape = (128, 128, 128)
+    resizeTo128 = tio.Resize(target_shape=target_shape)
     for batch_idx, (data, target) in enumerate(train_loader):
         batchSize = data.shape[0]
-        targetResized=resizeFun(target,(batchSize,128,128,128))
-        data,targetResized = data.to(device), torch.tensor(targetResized).to(device).long()
+        resizeData = torch.zeros(size=(batchSize,1,128,128,128))
+        targetResized = torch.zeros(size=(batchSize,1,128,128,128))
+        for i in range(batchSize):
+            resizeData[i][0] = resizeTo128(data[i])
+            targetResized[i][0] = resizeTo128(target[i].unsqueeze(0))
+        # targetResized=resizeFun(target,(batchSize,128,128,128))
+        resizeData = resizeData.to(device)
+        data,targetResized = data.to(device),targetResized.squeeze(1).long().to(device)
+        # data,targetResized = data.to(device), torch.tensor(targetResized).to(device).long()
         #         optimizer.zero_grad()
         with torch.no_grad():
-            output = model(data)
+            output = model(resizeData)
             loss = loss_fn(output, targetResized)
             losses.update(loss.item(), data.size(0))
             output = torch.argmax(output,1)
-            output = resizeFun(output.cpu().numpy(),(batchSize,target.shape[1],target.shape[2],target.shape[3]))
-            dice_coefficients.update(compute_dice_coefficient(output.astype(int),target.numpy()),1)
+            outputOriginal = resizeFun(output.cpu().numpy(),(batchSize,128,512,512))
+            # output = resizeFun(output.cpu().numpy(),(batchSize,target.shape[1],target.shape[2],target.shape[3]))
+            dice_coefficients.update(compute_dice_coefficient(outputOriginal.astype(int),target.numpy()),1)
 
         if batch_idx % 5 == 0:
             if epoch%5==0:
                 print("保存图像")
                 target  = targetResized.cpu().numpy()[0,:]
-                output = output[0,:]
-                # print(target.shape,output.shape)
-                
+                output = output.cpu().numpy()[0,:]
+
                 fig, ax1 = plt.subplots(1, 1, figsize = (40, 40),dpi=100)
                 ax1.imshow(montage(output[20:len(output)-15]), cmap ='bone')
                 fig.savefig('outPutImages/output_epoch{}.png'.format(epoch))
@@ -77,18 +87,60 @@ def val_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn
                 fig.savefig('outPutImages/target_epoch{}.png'.format(epoch))
                 plt.close('all')
     return losses.avg,dice_coefficients.avg
+def get_model(device):
+    outputChannel=14
+    # model = UNet(in_dim=1, out_dim=outputChannel, num_filters=4)
+    model = ResUNET(outputChannel=outputChannel)
+
+    model.to(device)
+    return model
+
+
+def get_transform():
+    crop_pad = tio.CropOrPad((128, 512, 512))
+    resize = tio.Resize(target_shape=(128, 128, 128))
+    standardize_only_segmentation = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
+    random_anisotropy = tio.RandomAnisotropy(p=0.5)
+    """
+    Researchers typically use anisotropic resampling for preprocessing before feeding the images into a neural network. We can simulate this effect downsampling our image along a specific dimension and resampling back to an isotropic spacing. Of course, this is a lossy operation, but that's the point! We want to increase the diversity of our dataset so that our models generalize better. Images in the real world have different artifacts and are not always isotropic, so this is a great transform for medical images.
+    """
+    random_flip = tio.RandomFlip(axes=['inferior-superior'], flip_probability=0.5)
+    trainTransform = tio.Compose([
+        crop_pad,
+        resize,
+
+        # random_flip,
+    ])
+    trainTransformWillChangeValue=tio.Compose([
+        standardize_only_segmentation,
+    ])
+
+    crop_pad = tio.CropOrPad((128, 512, 512))
+
+
+    validTransformForImage = tio.Compose([
+        crop_pad,
+        standardize_only_segmentation,
+
+    ])
+
+    validTransformForLaebl=tio.Compose([
+        crop_pad,
+    ])
+
+
+    return  trainTransform,trainTransformWillChangeValue,validTransformForImage,validTransformForLaebl
 def main():
     parser = argparse.ArgumentParser()
     arg = parser.add_argument
-    arg("--batch-size", type=int, default=2)
+    arg("--batch-size", type=int, default=4)
     arg("--epochs", type=int, default=500)
-    arg("--lr", type=float, default=0.0001)
-    arg("--workers", type=int, default=2)
-    arg("--model", type=str, default="UNet16")
+    arg("--lr", type=float, default=0.01)
+    arg("--workers", type=int, default=6)
+    arg("--model", type=str, default="ResUnet3D")
     #     arg("--test_mode", type=str2bool, default="false",choices=[True,False])
-    arg("--early_stopping", type=int, default=15)
-    arg("--train_class", type=int, default=1, choices=[1, 2, 3, 4])
-    arg("--optimizer", type=str, default="Adam")
+    arg("--optimizer", type=str, default="AdamW")
+    arg("--resumePath",type=str ,default='')
     arg(
         "--device-ids",
         type=str,
@@ -96,6 +148,7 @@ def main():
         help="For example 0,1 to run on two GPUs",
     )
     args = parser.parse_args()
+    print(args)
     if not os.path.exists("outPutImages"):
         try:
             os.makedirs("outPutImages")
@@ -112,26 +165,36 @@ def main():
     # print(imgPaths)
     # print(labelPath)
     splitIndex = int(len(imgPaths) * 0.8)
+
+
+    trainTransform, \
+    trainTransformWillChangeValue, \
+    validTransformForImage, \
+    validTransformForLaebl = get_transform()
+
     trainDataset = CustomImageDataset(CTImagePath=imgPaths[0:splitIndex],
                                       labelPath=labelPath[0:splitIndex],
-                                      labelTransform=resizeFun,
-                                      imgTransform=resizeFun)
-    valDataset = CustomImageDataset(CTImagePath=imgPaths[splitIndex:],
+                                      labelTransform=trainTransform,
+                                      TransformWillChangeValue=trainTransformWillChangeValue,
+                                      imgTransform=trainTransform)
+    valDataset = CustomValidImageDataset(CTImagePath=imgPaths[splitIndex:],
                                       labelPath=labelPath[splitIndex:],
-                                    imgTransform=resizeFun,
-                                    # labelTransform=resizeFun,
+                                    imgTransform=validTransformForImage,
+                                    labelTransform=validTransformForLaebl,
+
                                       )
 
     print("total images:", len(trainDataset))
     train_loader = torch.utils.data.DataLoader(trainDataset, batch_size=args.batch_size, num_workers=args.workers,
                                                shuffle=True)
-    val_loader = torch.utils.data.DataLoader(valDataset, batch_size=1, num_workers=args.workers,
+    val_loader = torch.utils.data.DataLoader(valDataset, batch_size=2, num_workers=args.workers,
                                              shuffle=False)
-    model = UNet(in_dim=1, out_dim=14, num_filters=4)
-    model.to(device)
-
-    optimizer = AdamW(model.parameters(), lr=3e-4, weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=150, gamma=0.25, last_epoch=-1)
+    model = get_model(device=device)
+    if args.resumePath!='':
+        print("loading model from {}".format(args.resumePath))
+        model.load_state_dict(torch.load(args.resumePath),strict=True)
+    optimizer = eval(args.optimizer)(model.parameters(), lr=3e-4, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.95, last_epoch=-1)
 
     epochs = args.epochs
     valid_mse = 0
@@ -153,16 +216,14 @@ def main():
                         epoch=epoch,
                         loss_fn=lossFun,
                         trainepochs=epochs)
-            validLossEpoch,validDiceEpoch = val_epoch(model, val_loader, optimizer, device, epoch, epochs,lossFun)
+            if epoch %10 == 0:
+                validLossEpoch,validDiceEpoch = val_epoch(model, val_loader, optimizer, device, epoch, epochs,lossFun)
+            # validLossEpoch, validDiceEpoch = 1,1
             trainLosses.update(trainLossEpoch)
             trainDiceCoefficients.update(trainDiceEpoch)
             validLosses.update(validLossEpoch)
             validDiceCoefficients.update(validDiceEpoch)
-            # t.set_postfix(All_train_Losses=trainLosses.avg,
-            #               All_train_Dice=trainDiceCoefficients.avg,
-            #               All_valid_Losses=validLosses.avg,
-            #               All_valid_Dice=validDiceCoefficients.avg
-            #               )
+
             t.set_postfix({"Train loss avg":trainLosses.avg,
                            "Train Dice resized":trainDiceCoefficients.avg,
                            "Valid loss avg":validLosses.avg,
@@ -172,7 +233,7 @@ def main():
             })
 
             if validDiceEpoch > valid_dice:
-                torch.save(model.state_dict(), "best_baseline.pth")
+                torch.save(model.state_dict(), args.model+"_best.pth")
                 valid_dice=validDiceEpoch
             scheduler.step()
 
