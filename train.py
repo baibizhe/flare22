@@ -186,7 +186,7 @@ def main():
 
     print("total images:", len(trainDataset))
     train_loader = torch.utils.data.DataLoader(trainDataset, batch_size=args.batch_size, num_workers=args.workers,
-                                               shuffle=True)
+                                               shuffle=True,prefetch_factor=4,pin_memmory = True)
     val_loader = torch.utils.data.DataLoader(valDataset, batch_size=2, num_workers=args.workers,
                                              shuffle=False)
     model = get_model(device=device)
