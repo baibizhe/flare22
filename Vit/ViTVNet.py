@@ -456,7 +456,7 @@ class VecInt(nn.Module):
 
 if __name__ == '__main__':
     CONFIGS = {
-        'ViT-V-Net': configs.get_3DReg_config(),
+        'ViT-V-Net': get_3DReg_config(),
     }
     model = ViTVNet(img_size=(64,64,64))
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

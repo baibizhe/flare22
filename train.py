@@ -147,7 +147,7 @@ def main():
     arg("--model", type=str, default="ResUnet3D")
     #     arg("--test_mode", type=str2bool, default="false",choices=[True,False])
     arg("--optimizer", type=str, default="AdamW")
-    arg("--taskname", type=str, default="Supervised+ResUnet+baseline256")
+    arg("--taskname", type=str, default="Supervised+VIT+baseline256")
 
     arg("--resumePath",type=str ,default='')
     arg(
