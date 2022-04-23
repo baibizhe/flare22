@@ -101,15 +101,15 @@ class ResUNET(nn.Module):
         super(ResUNET, self).__init__()
         filters = [64, 128, 256, 512, 1024]
         filters = [int(x // feature_scale) for x in filters]
-        self.conv1 = BasicBlock3D(1, filters[0], norm)
+        self.conv1 = ResidualBlock3D(1, filters[0], norm)
         self.downsample1 = Down(filters[0])
-        self.conv2 = BasicBlock3D(filters[1]//2, filters[1], norm)
+        self.conv2 = ResidualBlock3D(filters[1]//2, filters[1], norm)
         self.downsample2 = Down(filters[1])
-        self.conv3 = BasicBlock3D(filters[2]//2, filters[2], norm)
+        self.conv3 = ResidualBlock3D(filters[2]//2, filters[2], norm)
         self.downsample3 = Down(filters[2])
-        self.conv4 = BasicBlock3D(filters[3]//2, filters[3], norm)
+        self.conv4 = ResidualBlock3D(filters[3]//2, filters[3], norm)
         self.downsample4 = Down(filters[3])
-        self.center = BasicBlock3D(filters[4]//2, filters[4], norm)
+        self.center = ResidualBlock3D(filters[4]//2, filters[4], norm)
         self.up4 = Up(filters[4] + filters[3], filters[3], norm)
         self.up3 = Up(filters[3] + filters[2], filters[2], norm)
         self.up2 = Up(filters[2] + filters[1], filters[1], norm)
@@ -151,7 +151,7 @@ class ResUNET(nn.Module):
 
 if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    outputChannel = 12
+    outputChannel = 14
     x = torch.Tensor(2, 1, 64 , 64, 64)
     x.to(device)
     print("x size: {}".format(x.size()))

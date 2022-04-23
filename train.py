@@ -7,7 +7,9 @@ from timm.utils import AverageMeter
 from torch.optim import AdamW
 from skimage.transform import  resize
 import torchio as tio
-
+import random
+from torch.utils.tensorboard import SummaryWriter
+from Vit import ViTVNet
 from utils import CustomImageDataset, resizeFun, compute_dice_coefficient, CustomValidImageDataset
 from UnetBaseline import  UNet
 from torch.cuda.amp import autocast, GradScaler
@@ -16,6 +18,14 @@ from skimage.util import montage
 import matplotlib.pyplot as plt
 from tqdm import  trange
 from kakabaseline import  ResUNET
+def seed_everything(seed=2022):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 def train_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn):
     model.train()
     losses = AverageMeter()
@@ -26,12 +36,12 @@ def train_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device).long()
         optimizer.zero_grad()
+
         with autocast():
             output = model(data)
             loss = loss_fn(output, target)  # * 1000
             output = torch.argmax(output,1)
         dice_coefficients.update(compute_dice_coefficient(output.detach().cpu().numpy(),target.cpu().numpy()),1)
-
         losses.update(loss.item(), data.size(0))
         scaler.scale(loss).backward()
         scaler.step(optimizer)
@@ -51,27 +61,25 @@ def val_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn
     dice_coefficients = AverageMeter()
     output = None
     target_shape = (128, 128, 128)
+    target_shape = (256, 256, 256)
+
     resizeTo128 = tio.Resize(target_shape=target_shape)
     for batch_idx, (data, target) in enumerate(train_loader):
         batchSize = data.shape[0]
-        resizeData = torch.zeros(size=(batchSize,1,128,128,128))
-        targetResized = torch.zeros(size=(batchSize,1,128,128,128))
+        resizeData = torch.zeros(size=(batchSize,1,256, 256, 256))
+        targetResized = torch.zeros(size=(batchSize,1,256, 256, 256))
         for i in range(batchSize):
             resizeData[i][0] = resizeTo128(data[i])
             targetResized[i][0] = resizeTo128(target[i].unsqueeze(0))
-        # targetResized=resizeFun(target,(batchSize,128,128,128))
         resizeData = resizeData.to(device)
         data,targetResized = data.to(device),targetResized.squeeze(1).long().to(device)
-        # data,targetResized = data.to(device), torch.tensor(targetResized).to(device).long()
-        #         optimizer.zero_grad()
         with torch.no_grad():
             output = model(resizeData)
             loss = loss_fn(output, targetResized)
             losses.update(loss.item(), data.size(0))
             output = torch.argmax(output,1)
-            outputOriginal = resizeFun(output.cpu().numpy(),(batchSize,128,512,512))
-            # output = resizeFun(output.cpu().numpy(),(batchSize,target.shape[1],target.shape[2],target.shape[3]))
-            dice_coefficients.update(compute_dice_coefficient(outputOriginal.astype(int),target.numpy()),1)
+            # outputOriginal = resizeFun(output.cpu().numpy(),(batchSize,256,512,512))
+            dice_coefficients.update(compute_dice_coefficient(output.cpu().numpy().astype(int),target.numpy()),1)
 
         if batch_idx % 5 == 0:
             if epoch%5==0:
@@ -90,15 +98,16 @@ def val_epoch(model, train_loader, optimizer, device, epoch, trainepochs,loss_fn
 def get_model(device):
     outputChannel=14
     # model = UNet(in_dim=1, out_dim=outputChannel, num_filters=4)
-    model = ResUNET(outputChannel=outputChannel)
 
+    # model = ResUNET(outputChannel=outputChannel, feature_scale=4)
+    model = ViTVNet.ViTVNet(img_size=(256, 256, 256))
     model.to(device)
     return model
 
 
 def get_transform():
-    crop_pad = tio.CropOrPad((128, 512, 512))
-    resize = tio.Resize(target_shape=(128, 128, 128))
+    # crop_pad = tio.CropOrPad((128, 512, 512))
+    resize = tio.Resize(target_shape=(256, 256, 256))
     standardize_only_segmentation = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
     random_anisotropy = tio.RandomAnisotropy(p=0.5)
     """
@@ -106,40 +115,40 @@ def get_transform():
     """
     random_flip = tio.RandomFlip(axes=['inferior-superior'], flip_probability=0.5)
     trainTransform = tio.Compose([
-        crop_pad,
         resize,
-
-        # random_flip,
+        random_flip,
     ])
     trainTransformWillChangeValue=tio.Compose([
         standardize_only_segmentation,
     ])
 
-    crop_pad = tio.CropOrPad((128, 512, 512))
 
 
     validTransformForImage = tio.Compose([
-        crop_pad,
+        resize,
         standardize_only_segmentation,
 
     ])
 
     validTransformForLaebl=tio.Compose([
-        crop_pad,
+        resize,
     ])
 
 
     return  trainTransform,trainTransformWillChangeValue,validTransformForImage,validTransformForLaebl
 def main():
+    # seed_everything()
     parser = argparse.ArgumentParser()
     arg = parser.add_argument
-    arg("--batch-size", type=int, default=4)
+    arg("--batch-size", type=int, default=1)
     arg("--epochs", type=int, default=500)
     arg("--lr", type=float, default=0.01)
     arg("--workers", type=int, default=6)
     arg("--model", type=str, default="ResUnet3D")
     #     arg("--test_mode", type=str2bool, default="false",choices=[True,False])
     arg("--optimizer", type=str, default="AdamW")
+    arg("--taskname", type=str, default="Supervised+ResUnet+baseline256")
+
     arg("--resumePath",type=str ,default='')
     arg(
         "--device-ids",
@@ -154,6 +163,12 @@ def main():
             os.makedirs("outPutImages")
         except:
             pass
+    baseRoot = os.path.join("expOutput", args.taskname)
+    if not os.path.exists(baseRoot):
+        try:
+            os.makedirs(baseRoot)
+        except:
+            pass
     device = torch.device("cuda:%d" % 0)
     dataDirPath = "data/FLARE22_LabeledCase50-20220324T003930Z-001"
     # dataDirPath = "data/FLARE22_LabeledCase50"
@@ -166,6 +181,7 @@ def main():
     # print(labelPath)
     splitIndex = int(len(imgPaths) * 0.8)
 
+    writer = SummaryWriter(os.path.join(baseRoot,"logs"))
 
     trainTransform, \
     trainTransformWillChangeValue, \
@@ -186,55 +202,73 @@ def main():
 
     print("total images:", len(trainDataset))
     train_loader = torch.utils.data.DataLoader(trainDataset, batch_size=args.batch_size, num_workers=args.workers,
-                                               shuffle=True,prefetch_factor=4,pin_memmory = True)
-    val_loader = torch.utils.data.DataLoader(valDataset, batch_size=2, num_workers=args.workers,
-                                             shuffle=False)
+                                               shuffle=True,prefetch_factor=4,pin_memory = True)
+    val_loader = torch.utils.data.DataLoader(valDataset, batch_size=1, num_workers=args.workers,
+                                             shuffle=False,pin_memory = True)
     model = get_model(device=device)
     if args.resumePath!='':
         print("loading model from {}".format(args.resumePath))
         model.load_state_dict(torch.load(args.resumePath),strict=True)
+    else:
+        print("new training")
     optimizer = eval(args.optimizer)(model.parameters(), lr=3e-4, weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.95, last_epoch=-1)
+    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.95, last_epoch=-1)
+    warmup_epochs =5
+    T_mult=2
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=warmup_epochs,
+                                                                    T_mult=T_mult)
+    # will restart at 5+5*2=15，15+10*2=35，35+20 * 2=75
 
     epochs = args.epochs
-    valid_mse = 0
-    valid_dice = 0 
+    valid_dice = 0
     lossFun = torch.nn.CrossEntropyLoss()
     trainLosses = AverageMeter()
     trainDiceCoefficients = AverageMeter()
     validLosses = AverageMeter()
     validDiceCoefficients = AverageMeter()
     with trange(epochs) as t:
-        # for i in t:
         for epoch in t:
             t.set_description('Epoch %i' % epoch)
+            with torch.autograd.profiler.profile(enabled=True, use_cuda=True, record_shapes=False,
+                                                 profile_memory=False) as prof:
+                trainLossEpoch,trainDiceEpoch = train_epoch(model=model,
+                            train_loader=train_loader,
+                            optimizer=optimizer,
+                            device=device,
+                            epoch=epoch,
+                            loss_fn=lossFun,
+                            trainepochs=epochs)
+            prof.export_chrome_trace('./resnet_profile.json')
 
-            trainLossEpoch,trainDiceEpoch = train_epoch(model=model,
-                        train_loader=train_loader,
-                        optimizer=optimizer,
-                        device=device,
-                        epoch=epoch,
-                        loss_fn=lossFun,
-                        trainepochs=epochs)
-            if epoch %10 == 0:
+            if epoch %5 == 0:
                 validLossEpoch,validDiceEpoch = val_epoch(model, val_loader, optimizer, device, epoch, epochs,lossFun)
             # validLossEpoch, validDiceEpoch = 1,1
             trainLosses.update(trainLossEpoch)
             trainDiceCoefficients.update(trainDiceEpoch)
             validLosses.update(validLossEpoch)
             validDiceCoefficients.update(validDiceEpoch)
+            lr = optimizer.param_groups[0]["lr"]
 
             t.set_postfix({"Train loss avg":trainLosses.avg,
                            "Train Dice resized":trainDiceCoefficients.avg,
                            "Valid loss avg":validLosses.avg,
-                           "Valid dice full size":validDiceCoefficients.avg
-
+                           "Valid dice full size":validDiceCoefficients.avg,
+                           "lr":lr,
 
             })
 
             if validDiceEpoch > valid_dice:
                 torch.save(model.state_dict(), args.model+"_best.pth")
                 valid_dice=validDiceEpoch
+            writer.add_scalars(
+                        "loss", {"train loss": trainLosses.avg, "val loss": validLosses.avg}, epoch + 1,
+                    )
+            writer.add_scalars(
+                "LR", {"lr":lr,}, epoch + 1,
+            )
+            writer.add_scalars(
+                        "Dice", {"Train Dice resized": trainDiceCoefficients.avg,   "Valid dice full size":validDiceCoefficients.avg}, epoch + 1,
+                    )
             scheduler.step()
 
 

@@ -35,6 +35,7 @@ class CustomImageDataset(Dataset):
         image = torch.tensor(image)
         label = torch.tensor(label).squeeze(0)
         return image, label
+
 class CustomValidImageDataset(Dataset):
     def __init__(self, CTImagePath, labelPath, imgTransform=None,labelTransform=None):
         self.CTImagePath = CTImagePath
@@ -47,15 +48,19 @@ class CustomValidImageDataset(Dataset):
 
     def __getitem__(self, idx):
         image = read_image(self.CTImagePath[idx]).astype(np.float32)
-        label = read_label(self.labelPath[idx]).astype(np.int16)
+        if  self.labelPath: # 如果有labelpath 说明不是test dataset 而是valid
+            label = read_label(self.labelPath[idx]).astype(np.int16)
+            if self.labelTransform:
+                label = self.labelTransform(np.expand_dims(label, 0))
         # image =image/np.max(np.abs(image))
         if self.imgTransform:
             image = self.imgTransform(np.expand_dims(image,0))
-        if self.labelTransform:
-            label = self.labelTransform(np.expand_dims(label,0))
+
 
 
         image = torch.tensor(image)
+        if not self.labelPath:  # 如果没有labelpath 直接返回image就行了
+            return image
         label = torch.tensor(label).squeeze(0)
         return image, label
 def read_image(CTImagePath):
