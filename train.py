@@ -230,16 +230,13 @@ def main():
     with trange(epochs) as t:
         for epoch in t:
             t.set_description('Epoch %i' % epoch)
-            with torch.autograd.profiler.profile(enabled=True, use_cuda=True, record_shapes=False,
-                                                 profile_memory=False) as prof:
-                trainLossEpoch, trainDiceEpoch = train_epoch(model=model,
-                                                             train_loader=train_loader,
-                                                             optimizer=optimizer,
-                                                             device=device,
-                                                             epoch=epoch,
-                                                             loss_fn=lossFun,
-                                                             trainepochs=epochs)
-            prof.export_chrome_trace('./resnet_profile.json')
+            trainLossEpoch, trainDiceEpoch = train_epoch(model=model,
+                                                         train_loader=train_loader,
+                                                         optimizer=optimizer,
+                                                         device=device,
+                                                         epoch=epoch,
+                                                         loss_fn=lossFun,
+                                                         trainepochs=epochs)
 
             if epoch % 5 == 0:
                 validLossEpoch, validDiceEpoch = val_epoch(model, val_loader, optimizer, device, epoch, epochs, lossFun)
