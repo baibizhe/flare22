@@ -11,7 +11,7 @@ from timm.utils import AverageMeter
 from torch.cuda.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange
-
+from torch.optim import  AdamW
 from Vit import ViTVNet
 from utils import CustomImageDataset, compute_dice_coefficient, CustomValidImageDataset
 
