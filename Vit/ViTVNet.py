@@ -418,7 +418,20 @@ class ViTVNet(nn.Module):
         )
         self.spatial_trans = SpatialTransformer(img_size)
         self.config = config
+        self._init_weights()
         #self.integrate = VecInt(img_size, int_steps)
+
+    def _init_weights(self):
+        """ Initialize the weights """
+        for module in self.modules():
+
+            if isinstance(module, nn.BatchNorm3d):
+                module.bias.data.zero_()
+                module.weight.data.fill_(1.0)
+
+            elif isinstance(module, nn.Conv3d):
+                nn.init.kaiming_normal_(module.weight)
+
     def forward(self, x):
 
         source = x[:,0:1,:,:]

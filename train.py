@@ -148,7 +148,7 @@ def main():
     arg("--model", type=str, default="ResUnet3D")
     #     arg("--test_mode", type=str2bool, default="false",choices=[True,False])
     arg("--optimizer", type=str, default="AdamW")
-    arg("--taskname", type=str, default="Supervised+VIT+baseline256")
+    arg("--taskname", type=str, default="Supervised+VIT256+Binit")
 
     arg("--resumePath", type=str, default='')
     arg(
@@ -256,7 +256,7 @@ def main():
                            })
 
             if validDiceEpoch > valid_dice:
-                torch.save(model.state_dict(), args.model + "_best.pth")
+                torch.save(model.state_dict(), os.path.join(baseRoot,args.taskname + ".pth"))
                 valid_dice = validDiceEpoch
             writer.add_scalars(
                 "loss", {"train loss": trainLosses.avg, "val loss": validLosses.avg}, epoch + 1,
