@@ -10,7 +10,7 @@ def get_3DReg_config():
     config.transformer.num_heads = 12
     config.transformer.num_layers = 12
     config.transformer.attention_dropout_rate = 0.0
-    config.transformer.dropout_rate = 0.1
+    config.transformer.dropout_rate = 0.0
     config.patch_size = 8
     config.n_channels = 1
     config.output_channel = 14

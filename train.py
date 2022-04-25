@@ -60,14 +60,13 @@ def val_epoch(model, train_loader, optimizer, device, epoch, trainepochs, loss_f
     losses = AverageMeter()
     dice_coefficients = AverageMeter()
     output = None
-    target_shape = (128, 128, 128)
-    target_shape = (256, 256, 256)
+    target_shape = (1, 1,256, 128, 128)
 
-    resizeTo128 = tio.Resize(target_shape=target_shape)
+    resizeTo128 = tio.Resize(target_shape=target_shape[2:])
     for batch_idx, (data, target) in enumerate(train_loader):
         batchSize = data.shape[0]
-        resizeData = torch.zeros(size=(batchSize, 1, 256, 256, 256))
-        targetResized = torch.zeros(size=(batchSize, 1, 256, 256, 256))
+        resizeData = torch.zeros(size=target_shape)
+        targetResized = torch.zeros(size=target_shape)
         for i in range(batchSize):
             resizeData[i][0] = resizeTo128(data[i])
             targetResized[i][0] = resizeTo128(target[i].unsqueeze(0))
@@ -102,14 +101,14 @@ def get_model(device):
     # model = UNet(in_dim=1, out_dim=outputChannel, num_filters=4)
 
     # model = ResUNET(outputChannel=outputChannel, feature_scale=4)
-    model = ViTVNet.ViTVNet(img_size=(256, 256, 256))
+    model = ViTVNet.ViTVNet(img_size=(256, 128, 128))
     model.to(device)
     return model
 
 
 def get_transform():
     # crop_pad = tio.CropOrPad((128, 512, 512))
-    resize = tio.Resize(target_shape=(256, 256, 256))
+    resize = tio.Resize(target_shape=(256, 128, 128))
     standardize_only_segmentation = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
     random_anisotropy = tio.RandomAnisotropy(p=0.5)
     """
@@ -141,8 +140,8 @@ def main():
     # seed_everything()
     parser = argparse.ArgumentParser()
     arg = parser.add_argument
-    arg("--batch-size", type=int, default=2)
-    arg("--epochs", type=int, default=500)
+    arg("--batch-size", type=int, default=6)
+    arg("--epochs", type=int, default=1000)
     arg("--lr", type=float, default=0.01)
     arg("--workers", type=int, default=6)
     arg("--model", type=str, default="ResUnet3D")
