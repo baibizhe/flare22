@@ -65,6 +65,7 @@ class ResidualBlock3D(nn.Module):
         self.inplanes = inplanes
         self.planes = planes
 
+
     def forward(self, x):
         if self.inplanes != self.planes:
             residual = self.scale(x)
@@ -126,13 +127,13 @@ class ResUNET(nn.Module):
 
     #     self.initialize()
     #
-    # def initialize(self):
-    #     for m in self.modules():
-    #         if isinstance(m, nn.Conv3d):
-    #             nn.init.kaiming_normal_(m.weight)
-    #         elif isinstance(m, nn.BatchNorm3d):
-    #             nn.init.normal_(m.weight.data, 1.0, 0.02)
-    #             nn.init.constant_(m.bias.data, 0.0)
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, nn.BatchNorm3d):
+                nn.init.normal_(m.weight.data, 1.0, 0.02)
+                nn.init.constant_(m.bias.data, 0.0)
 
     def forward(self, inputs):
         conv1 = self.conv1(inputs)
@@ -150,13 +151,15 @@ class ResUNET(nn.Module):
         return self.final(up1)
 
 if __name__ == "__main__":
+    from torchsummary import summary
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     outputChannel = 14
-    x = torch.Tensor(2, 1, 64 , 64, 64)
-    x.to(device)
-    print("x size: {}".format(x.size()))
-
+    # x = torch.Tensor(1, 1, 16 , 512, 512)
+    # x.to(device)
+    # print("x size: {}".format(x.size()))
     model = ResUNET(outputChannel=outputChannel)
+    summary(model.to(device),(1,16 , 512, 512))
 
-    out = model(x)
-    print("out size: {}".format(out.size()))
+    # out = model(x)
+    # print("out size: {}".format(out.size()))

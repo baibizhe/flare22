@@ -10,9 +10,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as nnf
 from torch.nn import Dropout, Softmax, Linear, Conv3d, LayerNorm
-from torch.nn.modules.utils import _pair, _triple
+from torch.nn.modules.utils import _triple
 # from configs import get_3DReg_config
-from Vit.configs import   get_3DReg_config
+from models.Vit.configs import   get_3DReg_config
 from torch.distributions.normal import Normal
 
 logger = logging.getLogger(__name__)
@@ -418,7 +418,6 @@ class ViTVNet(nn.Module):
         )
         self.spatial_trans = SpatialTransformer(img_size)
         self.config = config
-        self._init_weights()
         #self.integrate = VecInt(img_size, int_steps)
 
     def _init_weights(self):
