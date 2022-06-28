@@ -7,14 +7,12 @@ import matplotlib.pyplot as plt
 import  numpy as np
 import torch
 import torchio as tio
-from skimage.util import montage
-from tqdm import trange
 import  nibabel as nib
-from kakabaseline import ResUNET
 from train import get_model
-from utils import CustomImageDataset, CustomValidImageDataset, resizeFun
-import SimpleITK as sikt
+from utils import CustomValidImageDataset
 from tqdm import  tqdm
+
+
 
 
 def find_file(file_path):
@@ -43,13 +41,13 @@ def main():
     allImages = find_file(args.dataDirPath1)
     allImages.extend(find_file(args.dataDirPath2))
     assert  len(allImages) ==50
-    crop_pad = tio.CropOrPad((128, 512, 512))
     standardize_only_segmentation = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
-    resizeTo128 = tio.Resize(target_shape=(128,128,128))
+    resize = tio.Resize(target_shape=(256, 128, 128))
+    rescale = tio.RescaleIntensity((-1, 1))
 
     validTransformForImage = tio.Compose([
-        crop_pad,
-        standardize_only_segmentation,
+        resize,
+        rescale,
     ])
     inferDataset = CustomValidImageDataset(CTImagePath=allImages,
                                       labelPath=None,
@@ -68,27 +66,39 @@ def main():
     trainedModel.load_state_dict(torch.load(args.modelPath),strict=True)
     input_nii = nib.load(allImages[0])
     depth=0
-    for idx,image in tqdm(enumerate(inferDataloader)):
-        originalshape = image.shape[1:]
-        depth+=originalshape[0]
-        print(depth)
-        # image = validTransformForImage(image)
-        # image = resizeTo128(image).unsqueeze(0).to(device)
-        # output =trainedModel(image)
-        # output = torch.argmax(output, 1).cpu().numpy()
-        # finaloutput = resizeFun(output[0],originalshape).astype(np.uint8)
-        # # finaloutput = np.transpose(finaloutput,(1,0,2))
-        # print("finaloutput {}".format(finaloutput.shape),originalshape)
-        # # print(finaloutput.shape)
-        # save_nii = nib.Nifti1Image(finaloutput.astype(np.uint8), input_nii.affine, input_nii.header)
-        # save_nii.set_data_dtype(np.uint8)
-        # nib.save(save_nii, os.path.join("submission","overoverfitting",allImages[idx].split("\\")[-1].split('_0000.nii.gz')[0]+'.nii.gz'))
+    for idx,batch in tqdm(enumerate(inferDataloader)):
+        image, path = batch[0],batch[1][0]
+        originalshape = image.shape
+        resizeBack = tio.Resize(target_shape=originalshape[1:])
+
+        image = validTransformForImage(image)
+
+        output = trainedModel(image.unsqueeze(0).cuda())
+        output = torch.argmax(output, 1).cpu().numpy()
+
+        finaloutput = resizeBack(output).astype(np.uint8)[0].T
+        finaloutput = np.transpose(finaloutput,(1,0,2))
+        print("finaloutput {}".format(finaloutput.shape),originalshape)
+        print(np.unique(finaloutput))
+        save_nii = nib.Nifti1Image(finaloutput.astype(np.uint8), input_nii.affine, input_nii.header)
+        save_nii.set_data_dtype(np.uint8)
+        nib.save(save_nii, os.path.join("submission","overoverfitting",path.split("\\")[-1].split('_0000.nii.gz')[0]+'.nii.gz'))
 
 
-        # print(allImages[idx].split("\\")[-1].split('_0000.nii.gz')[0]+'.nii.gz'        if idx %20==0:
-        # fig, ax1 = plt.subplots(1, 1, figsize=(40, 40), dpi=100)
-        # ax1.imshow(montage(finaloutput[20:len(output) - 15]), cmap='bone')
-        # fig.show()
+        # print(allImages[idx].split("\\")[-1].split('_0000.nii.gz')[0]+'.nii.gz'
+        if idx %5==0:
+            # fig, ax1 = plt.subplots(1, 1, figsize=(40, 40), dpi=100)
+            # ax1.imshow(montage(image.cpu().numpy()[0][20:len(output) - 15]), cmap='bone')
+            # ax1.imshow(montage(finaloutput[:,:,20:len(finaloutput) - 15]), cmap='bone')
+            plt.subplot(3,1,1)
+            plt.imshow(finaloutput[:,:,50])
+            plt.subplot(3,1,2)
+            plt.imshow(finaloutput[:,:,40])
+            plt.subplot(3,1,3)
+            plt.imshow(finaloutput[:,:,60])
+
+            plt.show()
+            # fig.show()
         # break
         # print(idx,image.shape)
 

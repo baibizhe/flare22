@@ -24,7 +24,6 @@ class CustomImageDataset(Dataset):
     def __getitem__(self, idx):
         image = read_image(self.CTImagePath[idx]).astype(np.float32)
         label = read_label(self.labelPath[idx]).astype(np.int16)
-        # image =image/np.max(np.abs(image))
         if self.imgTransform:
             image = self.imgTransform(np.expand_dims(image, 0))
             if self.TransformWillChangeValue:
@@ -32,12 +31,23 @@ class CustomImageDataset(Dataset):
 
         if self.labelTransform:
             label = self.labelTransform(np.expand_dims(label, 0))
-
+        # image = normalized_data(image)
         image = torch.tensor(image)
         label = torch.tensor(label).squeeze(0)
         return image, label
-
-
+def normalize(v):
+    norm = np.linalg.norm(v)
+    if norm == 0:
+       return v
+    return v / norm
+def normalized_data(data):
+    data -= np.min(data)
+    # Removing the outliers with a probability of occuring less than 5e-3 through histogram computation
+    histo, bins = np.histogram(data.flatten(), 10)
+    histo = normalize(histo)
+    Bin = bins[np.min(np.where(histo < 5e-3))]
+    data = np.clip(data, 0, Bin)
+    return  data
 class CustomValidImageDataset(Dataset):
     def __init__(self, CTImagePath, labelPath, imgTransform=None, labelTransform=None):
         self.CTImagePath = CTImagePath
@@ -50,17 +60,18 @@ class CustomValidImageDataset(Dataset):
 
     def __getitem__(self, idx):
         image = read_image(self.CTImagePath[idx]).astype(np.float32)
+
         if self.labelPath:  # 如果有labelpath 说明不是test dataset 而是valid
             label = read_label(self.labelPath[idx]).astype(np.int16)
-            if self.labelTransform:
-                label = self.labelTransform(np.expand_dims(label, 0))
-        # image =image/np.max(np.abs(image))
-        if self.imgTransform:
-            image = self.imgTransform(np.expand_dims(image, 0))
+        #     if self.labelTransform:
+        #         label = self.labelTransform(np.expand_dims(label, 0))
+        # if self.imgTransform:
+        #     image = self.imgTransform(np.expand_dims(image, 0))
+        # image = normalized_data(image)
 
         image = torch.tensor(image)
         if not self.labelPath:  # 如果没有labelpath 直接返回image就行了
-            return image
+            return image,self.CTImagePath[idx]
         label = torch.tensor(label).squeeze(0)
         return image, label
 
@@ -78,7 +89,9 @@ def read_label(labelPath):
 
 
 def resizeFun(img, targetSize=(128, 128, 128)):
-    return resize(img, output_shape=targetSize, order=0, preserve_range=True)
+    return resize(img, output_shape=targetSize)
+
+    # return resize(img, output_shape=targetSize, order=0, preserve_range=True)
 
 
 def compute_surface_distances(mask_gt, mask_pred, spacing_mm):
