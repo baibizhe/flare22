@@ -1,37 +1,21 @@
 import os
 from monai.utils import first, set_determinism
 from monai.transforms import (
-    AsDiscrete,
-    AsDiscreted,
     EnsureChannelFirstd,
     Compose,
     CropForegroundd,
     LoadImaged,
     Orientationd,
-    RandCropByPosNegLabeld,
-    SaveImaged,
     ScaleIntensityRanged,
-    Spacingd,
     EnsureTyped,
-    EnsureType,
-    Invertd,
+    Invertd, RandFlipd, RandShiftIntensityd,
 )
-from monai.transforms.croppad.dictionary import ResizeWithPadOrCropd
-# from monai.handlers.utils import from_engine
-from monai.networks.nets import UNet
-from monai.networks.layers import Norm
-from monai.metrics import DiceMetric
-from monai.losses import DiceLoss
-from monai.inferers import sliding_window_inference
-from monai.data import CacheDataset, DataLoader, Dataset, decollate_batch
-from monai.config import print_config
-from monai.apps import download_and_extract
-import torch
+from monai.transforms.croppad.dictionary import ResizeWithPadOrCropd, RandCropByLabelClassesd
+from monai.data import  DataLoader, Dataset, decollate_batch
+from  types import  SimpleNamespace
 import matplotlib.pyplot as plt
-import tempfile
-import shutil
 import os
-import glob
+import numpy as np
 def get_data_loaders(config):
     dataDirPath = "data/FLARE22_LabeledCase50-20220324T003930Z-001"
     # dataDirPath = "data/FLARE22_LabeledCase50"
@@ -50,25 +34,36 @@ def get_data_loaders(config):
         [
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
-            # Orientationd(keys=["image", "label"], axcodes="RAS"),
-            # # Spacingd(keys=["image", "label"], pixdim=(
-            # #     1.5, 1.5, 2.0), mode=("bilinear", "nearest")),
-            ResizeWithPadOrCropd(keys=["image", "label"],spatial_size=(512,512,128)),
+            Orientationd(keys=["image", "label"], axcodes="RAS"),
+
+            ResizeWithPadOrCropd(keys=["image", "label"],spatial_size=(512,512,config.patchshape[2])),
+            RandCropByLabelClassesd(
+                keys=["image", "label"],
+            label_key="label",
+                spatial_size=config.patchshape,
+                num_classes=14,
+                    num_samples=4,
+                ratios=[1 for i in range(14)],
+
+            ),
             ScaleIntensityRanged(
                 keys=["image"], a_min=-57, a_max=164,
                 b_min=0.0, b_max=1.0, clip=True,
             ),
-            CropForegroundd(keys=["image", "label"], source_key="image"),
-            RandCropByPosNegLabeld(
-                keys=["image", "label"],
-                label_key="label",
-                spatial_size=(128, 128, 128),
-                pos=1,
-                neg=1,
-                num_samples=4,
-                image_key="image",
-                image_threshold=0,
-            ),
+
+            # RandFlipd(keys=["image", "label"], prob=0.15, spatial_axis=1),
+            # RandFlipd(keys=["image", "label"], prob=0.15, spatial_axis=0),
+            # RandFlipd(keys=["image", "label"], prob=0.15, spatial_axis=2),
+            # RandCropByPosNegLabeld(
+            #     keys=["image", "label"],
+            #     label_key="label",
+            #     spatial_size=config.patchshape,
+            #     pos=1,
+            #     neg=1,
+            #     num_samples=4,
+            #     image_key="image",
+            #     image_threshold=0,
+            # ),
             # user can also add other random transforms
             # RandAffined(
             #     keys=['image', 'label'],
@@ -83,15 +78,14 @@ def get_data_loaders(config):
         [
             LoadImaged(keys=["image", "label"]),
             EnsureChannelFirstd(keys=["image", "label"]),
-            # ResizeWithPadOrCropd(keys=["image", "label"], spatial_size=(512, 512, 128)),
+            ResizeWithPadOrCropd(keys=["image", "label"], spatial_size=(512, 512,config.patchshape[2])),
 
-            Orientationd(keys=["image"], axcodes="RAS"),
-            # Spacingd(keys=["image"], pixdim=(
-            #     1.5, 1.5, 2.0), mode="bilinear"),
-            ScaleIntensityRanged(
-                keys=["image"], a_min=-57, a_max=164,
-                b_min=0.0, b_max=1.0, clip=True,
-            ),
+            Orientationd(keys=["image", "label"], axcodes="RAS"),
+
+            # ScaleIntensityRanged(
+            #     keys=["image"], a_min=-57, a_max=164,
+            #     b_min=0.0, b_max=1.0, clip=True,
+            # ),
             # CropForegroundd(keys=["image"], source_key="image"),
             EnsureTyped(keys=["image", "label"]),
         ]
@@ -108,7 +102,25 @@ def get_data_loaders(config):
 
     val_org_ds = Dataset(
         data=val_files, transform=val_org_transforms)
-    check_ds = Dataset(data=val_files, transform=val_org_transforms)
+
+    post_transforms = Compose([
+        EnsureTyped(keys=["pred","label"]),
+        Invertd(
+            keys=["pred","label"],
+            transform=val_org_transforms,
+            orig_keys="image",
+            meta_keys=["pred_meta_dict","label_meta_dict"],
+            orig_meta_keys="image_meta_dict",
+            meta_key_postfix="meta_dict",
+            nearest_interp=False,
+            to_tensor=True,
+        ),
+        # AsDiscreted(keys="pred", argmax=True, to_onehot=2),
+        # AsDiscreted(keys="label", to_onehot=2),
+    ])
+    val_org_loader = DataLoader(val_org_ds, batch_size=1,shuffle=False, num_workers=1)
+
+    check_ds = Dataset(data=val_files, transform=train_transforms)
     check_loader = DataLoader(check_ds, batch_size=1)
     check_data = first(check_loader)
     image, label = (check_data["image"][0][0], check_data["label"][0][0])
@@ -121,29 +133,10 @@ def get_data_loaders(config):
     plt.subplot(1, 2, 2)
     plt.title("label")
     plt.imshow(label[:, :, 80])
-    plt.show()
-    post_transforms = Compose([
-        EnsureTyped(keys="pred"),
-        Invertd(
-            keys="pred",
-            transform=val_org_transforms,
-            orig_keys="image",
-            meta_keys="pred_meta_dict",
-            orig_meta_keys="image_meta_dict",
-            meta_key_postfix="meta_dict",
-            nearest_interp=False,
-            to_tensor=True,
-        ),
-        # AsDiscreted(keys="pred", argmax=True, to_onehot=2),
-        # AsDiscreted(keys="label", to_onehot=2),
-    ])
-    val_org_loader = DataLoader(val_org_ds, batch_size=1,shuffle=False, num_workers=1)
-    # val_ds = Dataset(data=val_files, transform=val_transforms)
+    plt.savefig('data_loader.png')
     return   train_loader,val_org_loader,post_transforms
-    # for i in train_loader:
-    #     print(i["image"].shape)
-    # for j in val_loader:
-        # print(j.shape)
+
 if __name__ == '__main__':
-    get_data_loaders(None)
+    config = SimpleNamespace(patchshape=(96,96,96))
+    get_data_loaders(config)
 
