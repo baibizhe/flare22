@@ -214,9 +214,15 @@ def main():
                 plt.imshow(out_up)
                 plt.subplot(1, 2, 2)
                 plt.title("label")
-                plt.imshow(label_up)
                 mywandb.tensor_board.log({"data": wandb.Image(plt)})
-
+            else:
+                plt.figure("check", (12, 6))
+                plt.subplot(1, 2, 1)
+                plt.title("image")
+                plt.imshow(out_up)
+                plt.subplot(1, 2, 2)
+                plt.title("label")
+                plt.savefig('output{}.png'.format(epoch))
             t.set_postfix(info_dict)
 
             if validDiceEpoch > valid_dice:
