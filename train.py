@@ -226,7 +226,7 @@ def main():
                 plt.title("label")
                 plt.imshow(label_up)
 
-                plt.savefig('output{}.png'.format(epoch))
+                plt.savefig(os.path.join("outPutImages",'output{}.png'.format(epoch)))
             t.set_postfix(info_dict)
 
             if validDiceEpoch > valid_dice:
