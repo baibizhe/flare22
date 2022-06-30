@@ -44,7 +44,7 @@ def train_epoch(model, train_loader, optimizer, device, epoch, trainepochs, loss
             output = model(data)
 
             loss = loss_fn1(output.unsqueeze(2), target)  # * 1000
-            loss += loss_fn2(output, target) * 0.2
+            # loss += loss_fn2(output, target) * 0.2
             output = torch.argmax(output, 1)
 
         dice_coefficients.update(compute_dice_coefficient(output.detach().cpu().numpy(), target.cpu().numpy()), len(batch))
@@ -117,13 +117,15 @@ def main():
 
         )
     arg("--epochs", type=int, default=1000)
-    arg("--lr", type=float, default=0.0005)
+    arg("--lr", type=float, default=0.00002
+        )
     arg("--workers", type=int, default=6)
     arg("--model", type=str, default="ResUnet3D")
     arg("--patchshape", type=tuple, default=(96, 96, 96))
     #     arg("--test_mode", type=str2bool, default="false",choices=[True,False])
     arg("--optimizer", type=str, default="AdamW")
-    arg("--taskname", type=str, default="pretrain+629night+96patch+baseaug")
+
+    arg("--taskname", type=str, default="pretrain+96patch")
 
     arg("--pretrain-path", type=str, default='model_bestValRMSE.pt')
     arg("--resumePath", type=str, default='')
@@ -168,12 +170,13 @@ def main():
     CELossFun = torch.nn.CrossEntropyLoss()
     DiceLossFun = monai.losses.DiceCELoss(to_onehot_y=True,
                                           softmax=True)
-    trainLosses,trainDiceCoefficients,validLosses,validDiceCoefficients = AverageMeter(),AverageMeter(),AverageMeter(),AverageMeter()
-    validLossEpoch, validDiceEpoch ,valid_dice = 0, 0 , 0
+
     for param in model.swinViT.parameters():
         param.requires_grad = False
     with trange(epochs) as t:
         for epoch in t:
+            trainLosses, trainDiceCoefficients, validLosses, validDiceCoefficients = AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter()
+            validLossEpoch, validDiceEpoch, valid_dice = 0, 0, 0
             if epoch == 3:
                 for param in model.swinViT.parameters():
                     param.requires_grad = True

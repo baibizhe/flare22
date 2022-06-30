@@ -10,7 +10,7 @@ class Tensorboard:
     def __init__(self, config):
         os.system("wandb login")
         os.system("wandb {}".format("online" if config.use_wandb else "offline"))
-        config.run_name = " {} ".format(str(config.taskname))
+        config.run_name = " {} ".format(str("630afternoon+pretrain14k+baseaug"))
         self.tensor_board = wandb.init(project=config.taskname,
                                        name=config.run_name,
                                        config=config)
