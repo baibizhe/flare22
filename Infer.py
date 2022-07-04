@@ -11,7 +11,7 @@ import torchio as tio
 import  nibabel as nib
 from monai.data import Dataset, DataLoader, decollate_batch
 from monai.handlers import from_engine
-from monai.inferers import sliding_window_inference
+from monai.inferers import sliding_window_inference,SlidingWindowInferer
 
 from get_data_loaders import get_data_loaders
 from utils import CustomValidImageDataset
@@ -42,6 +42,8 @@ def get_infer_loaders(args):
     allImages = find_file(args.dataDirPath1)
     allImages.extend(find_file(args.dataDirPath2))
     assert  len(allImages) ==50
+    allImages=allImages[40:]
+
     data_dicts = [
         {"image": image_name}
         for image_name in allImages
@@ -105,7 +107,7 @@ def main():
 
     post_transforms, val_loader = get_infer_loaders(args)
 
-
+    infer = SlidingWindowInferer(roi_size = args.patch_size,sw_batch_size=1,overlap=0,progress=True)
     if torch.cuda.is_available():
         print("using GPU 3090!!!!!!!!!!!!!!!!")
         device = torch.device("cuda:%d" % 0)
@@ -122,12 +124,24 @@ def main():
         for idx,val_data in tqdm(enumerate(val_loader)):
 
             val_inputs = val_data["image"].cuda()
-            roi_size = args.patch_size
-            sw_batch_size = 1
-            val_data["pred"] = sliding_window_inference(
-                val_inputs, roi_size, sw_batch_size, trainedModel)
+            print(val_inputs.shape)
+
+            if val_inputs.shape[-1]>1000:
+
+                val_data["pred"] = torch.ones_like(val_inputs).cpu()
+
+            elif val_inputs.shape[-1]>700:
+                splt1 = val_inputs[:,:,:,:,0:400]
+                splt2 = val_inputs[:,:,:,:,400:]
+                #
+                splt1_out = infer(splt1,trainedModel).cpu()
+                splt2_out = infer(splt2,trainedModel).cpu()
+                # splt3_out = infer(splt3,trainedModel).cpu()
+
+                val_data["pred"] = torch.cat((splt1_out,splt2_out),4)
+            else:
+                val_data["pred"]  = infer(val_inputs,trainedModel).cpu()
             val_data["pred"] = torch.argmax(val_data["pred"], dim=1, keepdim=True)
-            print(val_data["pred"].shape)
 
             val_data = [post_transforms(i) for i in decollate_batch(val_data)]
             val_outputs = from_engine(["pred"])(val_data)
@@ -135,11 +149,13 @@ def main():
 
 
 
-            finaloutput = np.transpose(val_outputs[0][0].cpu().numpy(),(1,0,2))
+            finaloutput = np.transpose(val_outputs[0][0].numpy(),(1,0,2))
+            print(val_inputs.shape,finaloutput.shape)
+
             save_nii = nib.Nifti1Image(finaloutput.astype(np.uint8), input_nii.affine, input_nii.header)
             save_nii.set_data_dtype(np.uint8)
             nib.save(save_nii, os.path.join("submission","overoverfitting",
-                                            os.path.split("\\")[-1].split('_0000.nii.gz')[0] + '.nii.gz'))
+                                            os.path.split(os.path.sep)[-1].split('_0000.nii.gz')[0] + '.nii.gz'))
 
 
 
